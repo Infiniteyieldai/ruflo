@@ -34,6 +34,7 @@ import { workerTools } from './worker-tools.js';
 import { sonaTools } from './sona-tools.js';
 import { federationTools } from './federation-tools.js';
 import { v2CompatTools, getV2Tool, mapV2ToV3ToolName } from './v2-compat-tools.js';
+import { n8nTools } from './n8n-tools.js';
 
 // ============================================================================
 // Individual Tool Exports
@@ -147,6 +148,20 @@ export {
   federationTools,
 } from './federation-tools.js';
 
+// n8n Integration tools
+export {
+  createWorkflowTool,
+  listWorkflowsTool,
+  getWorkflowTool,
+  activateWorkflowTool,
+  deleteWorkflowTool,
+  createCredentialTool,
+  listCredentialsTool,
+  readEnvTool,
+  updateEnvTool,
+  n8nTools,
+} from './n8n-tools.js';
+
 // V2 Compatibility tools (backward compatibility with V2 MCP naming)
 export {
   v2CompatTools,
@@ -202,6 +217,7 @@ export function getAllTools(includeV2Compat = true): MCPTool[] {
     ...workerTools,
     ...sonaTools,
     ...federationTools,
+    ...n8nTools,
   ];
 
   // Include V2 compatibility tools if requested (default: true for backward compatibility)
@@ -438,6 +454,8 @@ export default {
   workerTools,
   sonaTools,
   federationTools,
+  // n8n Integration
+  n8nTools,
   // V2 Compatibility
   v2CompatTools,
   getV2Tool,
