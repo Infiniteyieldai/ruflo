@@ -1,0 +1,213 @@
+{
+  "name": "02 - Meeting Coordinator",
+  "nodes": [
+    {
+      "id": "meet-001",
+      "name": "Watch for Meeting Emails",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute" }]
+        },
+        "filters": {
+          "readStatus": "unread",
+          "q": "meeting OR schedule OR call OR interview OR appointment"
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "meet-002",
+      "name": "Claude - Extract Meeting Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 300,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Extract meeting details from this email. Return ONLY valid JSON with these fields: { isMeetingRequest: boolean, proposedDate: string or null (ISO 8601), duration: number (minutes, default 60), title: string, attendees: string[], summary: string }.\\n\\nFrom: {{ $json.from }}\\nSubject: {{ $json.subject }}\\nBody: {{ ($json.text || $json.snippet || '').slice(0, 1000) }}\"\n  }]\n}"
+      }
+    },
+    {
+      "id": "meet-003",
+      "name": "Parse Meeting JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 300],
+      "parameters": {
+        "jsCode": "const aiText = $input.first().json.content?.[0]?.text || '{}';\nconst emailData = $('Watch for Meeting Emails').first().json;\nlet meeting = {};\ntry {\n  const jsonMatch = aiText.match(/\\{[\\s\\S]*\\}/);\n  meeting = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch(e) {\n  meeting = { isMeetingRequest: false };\n}\nreturn [{\n  json: {\n    emailId: emailData.id,\n    threadId: emailData.threadId,\n    replyTo: emailData.from,\n    emailSubject: emailData.subject,\n    ...meeting\n  }\n}];"
+      }
+    },
+    {
+      "id": "meet-004",
+      "name": "Is Meeting Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [940, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ $json.isMeetingRequest }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "meet-005",
+      "name": "Check Calendar Availability",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.1,
+      "position": [1180, 200],
+      "parameters": {
+        "operation": "getAll",
+        "calendar": { "__rl": true, "value": "primary", "mode": "list", "cachedResultName": "primary" },
+        "returnAll": false,
+        "limit": 10,
+        "timeMin": "={{ $json.proposedDate ? new Date(new Date($json.proposedDate).getTime() - 3600000).toISOString() : new Date().toISOString() }}",
+        "timeMax": "={{ $json.proposedDate ? new Date(new Date($json.proposedDate).getTime() + 7200000).toISOString() : new Date(Date.now() + 3600000).toISOString() }}"
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "REPLACE_WITH_GCAL_CREDENTIAL_ID",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "meet-006",
+      "name": "Slot Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1420, 200],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "cond-2",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "meet-007",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.1,
+      "position": [1660, 140],
+      "parameters": {
+        "operation": "create",
+        "calendar": { "__rl": true, "value": "primary", "mode": "list", "cachedResultName": "primary" },
+        "start": "={{ $('Parse Meeting JSON').first().json.proposedDate || new Date().toISOString() }}",
+        "end": "={{ new Date(new Date($('Parse Meeting JSON').first().json.proposedDate || new Date()).getTime() + ($('Parse Meeting JSON').first().json.duration || 60) * 60000).toISOString() }}",
+        "additionalFields": {
+          "summary": "={{ $('Parse Meeting JSON').first().json.title || $('Parse Meeting JSON').first().json.emailSubject }}",
+          "description": "={{ $('Parse Meeting JSON').first().json.summary }}\\n\\nScheduled via Ruflo Email Manager.",
+          "attendees": "={{ ($('Parse Meeting JSON').first().json.attendees || []).join(',') }}"
+        }
+      },
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "REPLACE_WITH_GCAL_CREDENTIAL_ID",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "id": "meet-008",
+      "name": "Reply - Confirmed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1900, 140],
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Parse Meeting JSON').first().json.emailId }}",
+        "message": "=Hi,\n\nThank you for reaching out! I've added the meeting to my calendar.\n\nDetails:\n- Title: {{ $('Parse Meeting JSON').first().json.title }}\n- Time: {{ $('Parse Meeting JSON').first().json.proposedDate }}\n- Duration: {{ $('Parse Meeting JSON').first().json.duration || 60 }} minutes\n\nLooking forward to it!\n\nBest regards",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "meet-009",
+      "name": "Reply - Suggest Alternate",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1900, 300],
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Parse Meeting JSON').first().json.emailId }}",
+        "message": "=Hi,\n\nThank you for reaching out! Unfortunately the proposed time conflicts with an existing commitment.\n\nCould we explore an alternative time? Please feel free to suggest a few options and I'll confirm ASAP.\n\nBest regards",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Watch for Meeting Emails": {
+      "main": [[{ "node": "Claude - Extract Meeting Details", "type": "main", "index": 0 }]]
+    },
+    "Claude - Extract Meeting Details": {
+      "main": [[{ "node": "Parse Meeting JSON", "type": "main", "index": 0 }]]
+    },
+    "Parse Meeting JSON": {
+      "main": [[{ "node": "Is Meeting Request?", "type": "main", "index": 0 }]]
+    },
+    "Is Meeting Request?": {
+      "main": [
+        [{ "node": "Check Calendar Availability", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Check Calendar Availability": {
+      "main": [[{ "node": "Slot Available?", "type": "main", "index": 0 }]]
+    },
+    "Slot Available?": {
+      "main": [
+        [{ "node": "Create Calendar Event", "type": "main", "index": 0 }],
+        [{ "node": "Reply - Suggest Alternate", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [[{ "node": "Reply - Confirmed", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "email-manager" }, { "name": "calendar" }, { "name": "ai" }]
+}

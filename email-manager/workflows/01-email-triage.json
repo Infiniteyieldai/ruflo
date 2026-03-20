@@ -1,0 +1,154 @@
+{
+  "name": "01 - Email Triage & Auto-Label",
+  "nodes": [
+    {
+      "id": "triage-001",
+      "name": "Watch Gmail Inbox",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute" }]
+        },
+        "filters": {
+          "readStatus": "unread",
+          "labelIds": ["INBOX"]
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "triage-002",
+      "name": "Prepare AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "jsCode": "const email = $input.first().json;\nreturn [{\n  json: {\n    emailId: email.id,\n    threadId: email.threadId,\n    from: email.from,\n    subject: email.subject || '(no subject)',\n    snippet: (email.snippet || '').slice(0, 500),\n    prompt: `Classify this email into exactly ONE category:\\nURGENT, MEETING_REQUEST, NEWSLETTER, SUPPORT, FINANCE, or OTHER.\\n\\nReply with ONLY the category word — no explanation.\\n\\nFrom: ${email.from}\\nSubject: ${email.subject}\\nPreview: ${(email.snippet || '').slice(0, 300)}`\n  }\n}];"
+      }
+    },
+    {
+      "id": "triage-003",
+      "name": "Claude - Classify Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 20,\n  \"messages\": [{ \"role\": \"user\", \"content\": {{ JSON.stringify($json.prompt) }} }]\n}"
+      }
+    },
+    {
+      "id": "triage-004",
+      "name": "Parse Category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300],
+      "parameters": {
+        "jsCode": "const aiResponse = $input.first().json;\nconst emailData = $('Prepare AI Prompt').first().json;\nconst category = (aiResponse.content?.[0]?.text || 'OTHER').trim().toUpperCase();\nconst validCategories = ['URGENT', 'MEETING_REQUEST', 'NEWSLETTER', 'SUPPORT', 'FINANCE', 'OTHER'];\nconst finalCategory = validCategories.includes(category) ? category : 'OTHER';\nreturn [{\n  json: {\n    ...emailData,\n    category: finalCategory,\n    isUrgent: finalCategory === 'URGENT',\n    isMeeting: finalCategory === 'MEETING_REQUEST',\n    isNewsletter: finalCategory === 'NEWSLETTER'\n  }\n}];"
+      }
+    },
+    {
+      "id": "triage-005",
+      "name": "Urgent?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1160, 300],
+      "parameters": {
+        "mode": "expression",
+        "output": "={{ $json.category }}",
+        "rules": {
+          "values": [
+            { "outputKey": "URGENT" },
+            { "outputKey": "MEETING_REQUEST" },
+            { "outputKey": "NEWSLETTER" }
+          ]
+        },
+        "fallbackOutput": "extra"
+      }
+    },
+    {
+      "id": "triage-006",
+      "name": "Star Urgent Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 160],
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $json.emailId }}"
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "triage-007",
+      "name": "Forward to Meeting Flow",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1400, 300],
+      "parameters": {}
+    },
+    {
+      "id": "triage-008",
+      "name": "Archive Newsletter",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 440],
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $json.emailId }}"
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Watch Gmail Inbox": {
+      "main": [[{ "node": "Prepare AI Prompt", "type": "main", "index": 0 }]]
+    },
+    "Prepare AI Prompt": {
+      "main": [[{ "node": "Claude - Classify Email", "type": "main", "index": 0 }]]
+    },
+    "Claude - Classify Email": {
+      "main": [[{ "node": "Parse Category", "type": "main", "index": 0 }]]
+    },
+    "Parse Category": {
+      "main": [[{ "node": "Urgent?", "type": "main", "index": 0 }]]
+    },
+    "Urgent?": {
+      "main": [
+        [{ "node": "Star Urgent Email", "type": "main", "index": 0 }],
+        [{ "node": "Forward to Meeting Flow", "type": "main", "index": 0 }],
+        [{ "node": "Archive Newsletter", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "email-manager" }, { "name": "ai" }]
+}

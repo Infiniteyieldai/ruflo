@@ -1,0 +1,16 @@
+{
+  "name": "email-manager",
+  "version": "1.0.0",
+  "description": "n8n Email Manager workflow deployer",
+  "scripts": {
+    "deploy": "npx tsx deploy.ts",
+    "deploy:dry": "DRY_RUN=true npx tsx deploy.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
