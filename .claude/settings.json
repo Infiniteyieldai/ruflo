@@ -30,9 +30,16 @@
       "Bash(pwd)",
       "Bash(ls:*)",
       "Bash(npx:*)",
+      "Bash(gh repo*)",
+      "Bash(gh issue*)",
+      "Bash(gh pr*)",
+      "Bash(gh release*)",
+      "Bash(gh auth status)",
+      "Bash(bash scripts/fork-sync.sh*)",
       "mcp__claude-flow__*",
       "mcp__ruv-swarm__*",
-      "mcp__flow-nexus__*"
+      "mcp__flow-nexus__*",
+      "mcp__github__*"
     ],
     "deny": [
       "Read(./.env)",
@@ -239,7 +246,8 @@
         "deepdive",
         "document",
         "refactor",
-        "benchmark"
+        "benchmark",
+        "repo-sync"
       ],
       "schedules": {
         "audit": { "interval": "1h", "priority": "critical" },
@@ -247,7 +255,8 @@
         "consolidate": { "interval": "2h", "priority": "low" },
         "document": { "interval": "1h", "priority": "normal" },
         "deepdive": { "interval": "4h", "priority": "normal" },
-        "ultralearn": { "interval": "1h", "priority": "normal" }
+        "ultralearn": { "interval": "1h", "priority": "normal" },
+        "repo-sync": { "interval": "168h", "priority": "normal", "command": "bash scripts/fork-sync.sh --org Infiniteyieldai --report" }
       }
     },
     "learning": {
@@ -296,10 +305,18 @@
         "mcp",
         "start"
       ]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
     }
   },
   "enabledMcpjsonServers": [
     "claude-flow",
-    "ruv-swarm"
+    "ruv-swarm",
+    "github"
   ]
 }
